@@ -74,6 +74,14 @@ The agent loads `frontend-playbook`, runs Stage 0 (detect stack) → Stage 1 (au
 
 For single-component tweaks or backend work it stays quiet (`Do NOT use for…` gate). Force it by mentioning `frontend-playbook` in your request.
 
+## Optional: clone a site's look from a URL
+
+`frontend-playbook` can replicate a reference site's design system. When the user gives a URL (or says "复刻 / 参考 <site>"), Stage 0.5 runs `frontend-playbook/scripts/extract-from-url.mjs` — a Playwright sampler that navigates the URL and dumps computed-style token candidates (colors / fonts / sizes / radii / spacing) as JSON. The agent names + dedupes them, adds rationale, writes a `DESIGN.md`, and lints it in Stage 1.
+
+No extra install — it reuses Playwright (provided by the `webapp-testing` prerequisite). If Playwright is missing, the agent runs `npm i -D playwright && npx playwright install chromium`.
+
+**Fidelity:** sampling infers a token system from a few elements — good for "复刻大概感觉", not pixel-perfect brand cloning. For higher fidelity, optionally install a dedicated extractor skill (e.g. `shaom/brand-to-design-md-skill`) — not bundled by default.
+
 ## How it was validated
 
 RED-GREEN tested per the `writing-skills` methodology:

@@ -25,6 +25,25 @@ Read `package.json` and config files. State the detected stack out loud before b
 
 **design.md export format** (used in Stage 1): `tailwind.config.js` present → Tailwind v3 `--format json-tailwind`; only `@import "tailwindcss"` / `@tailwindcss/vite` → Tailwind v4 `--format css-tailwind`; no Tailwind → `--format dtcg`.
 
+## Stage 0.5 — Clone from URL (optional, conditional)
+
+Triggered only when the user wants to replicate a reference site's look. Three-way decision:
+
+- User gave a URL or said "复刻 / clone / 参考 <site>" → run this stage.
+- User gave aesthetic direction (colors / fonts / mood) but no URL → **skip**, go to Stage 1.
+- User gave neither → ask once via the `question` tool: "有参考网站吗？给 URL 我复刻它的设计系统；没有就跳过，我给你定一套。" If skipped → Stage 1.
+
+If triggered:
+
+1. Ensure Playwright is available — run `npm i -D playwright` and `npx playwright install chromium` if not already present (reuses the `webapp-testing` prerequisite's stack).
+2. Run `scripts/extract-from-url.mjs <url>` (relative to this skill's base directory) → JSON token candidates sampled from the live page's computed styles (colors / fonts / sizes / weights / radii / spacing).
+3. Name + dedupe the candidates, normalize color formats, add rationale (why each color / font / spacing), author `DESIGN.md` from them.
+4. Hand off to Stage 1's `designmd lint` to validate — fix broken refs / contrast failures surfaced there.
+
+**Fallback:** if Playwright is blocked by the site (anti-bot) or unavailable, use `webfetch` on the URL + its linked CSS files and parse tokens manually. Lower fidelity — note this in the final report.
+
+**Fidelity note:** this samples a few elements and infers a token system — good for "复刻大概感觉", not pixel-perfect brand cloning. For higher fidelity the user can install a dedicated extractor skill (see README); not bundled by default.
+
 ## Stage 1 — Baseline (skill: design-md)
 
 Author `DESIGN.md` at project root (YAML front-matter tokens + markdown rationale, section order per design-md spec). Lint. Export to the format from Stage 0.
