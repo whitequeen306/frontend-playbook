@@ -134,6 +134,13 @@ spacing: { sm: 12, md: 24, lg: 48, xl: 96 }
 - **RED**（无 playbook）：agent 跳过 DESIGN.md，盲发未验证、未渲染的代码。
 - **GREEN**（有 playbook）：agent 写 + lint 了 DESIGN.md，跑 Playwright 21/21，**首轮就抓到一个真 LCP bug**（2516ms → 2296ms）并修掉。两个 gap 都堵上。
 
+## 互补工具
+
+本 playbook 是"按主题新建前端 + token + 验证"的指挥。如果你要的是**像素级整站克隆成 Next.js 代码**（连内容、资产、交互一起搬），用专门的克隆模板更合适：
+
+- **[JCodesMore/ai-website-cloner-template](https://github.com/JCodesMore/ai-website-cloner-template)**（25k★）—— `/clone-website` skill 跑多阶段流水线：Chrome MCP 侦察（截图 + token 提取 + scroll/click/hover 交互扫描）→ 基础层 → 组件 spec → 并行 builder → 视觉 QA diff。它的交互扫描技术（多状态 diff、transition 提取、交互模型判定）已被我们借鉴进 Stage 0.5 的采样器。它的 [INSPECTION_GUIDE](https://github.com/JCodesMore/ai-website-cloner-template/blob/master/docs/research/INSPECTION_GUIDE.md) 是一份很好的克隆检查表。
+- 区别：他模板绑死 Next.js + 假设 `claude --chrome`，输出一整个项目；我们栈无关、是装到任何 agent 的可移植 skill。两者互补——新建用我们，整站克隆用他。
+
 ## 许可证与归属
 
 - `frontend-playbook/SKILL.md` — **MIT**（本仓库）。

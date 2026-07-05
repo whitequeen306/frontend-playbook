@@ -36,13 +36,13 @@ Triggered only when the user wants to replicate a reference site's look. Three-w
 If triggered:
 
 1. Ensure Playwright is available — run `npm i -D playwright` and `npx playwright install chromium` if not already present (reuses the `webapp-testing` prerequisite's stack).
-2. Run `scripts/extract-from-url.mjs <url>` (relative to this skill's base directory) → JSON token candidates sampled from the live page's computed styles (colors / fonts / sizes / weights / radii / spacing).
-3. Name + dedupe the candidates, normalize color formats, add rationale (why each color / font / spacing), author `DESIGN.md` from them.
+2. Run `scripts/extract-from-url.mjs <url>` (relative to this skill's base directory) → JSON with two blocks: **candidates** (static tokens: colors / fonts / sizes / weights / radii / spacing) and **behaviors** (smooth-scroll lib detection, transition/animation CSS, scroll-triggered style diffs at y=0 vs y=600, hover diffs, reveal candidates, interaction-model guess — scroll vs click vs time-driven).
+3. From **candidates**: name + dedupe, normalize color formats, add rationale, author `DESIGN.md`. From **behaviors**: carry the motion findings into Stage 3 — re-implement the target's transitions / triggers thematically (still cool-serves-content; this is observe+rebuild, NOT file copy).
 4. Hand off to Stage 1's `designmd lint` to validate — fix broken refs / contrast failures surfaced there.
 
 **Fallback:** if Playwright is blocked by the site (anti-bot) or unavailable, use `webfetch` on the URL + its linked CSS files and parse tokens manually. Lower fidelity — note this in the final report.
 
-**Fidelity note:** this samples a few elements and infers a token system — good for "复刻大概感觉", not pixel-perfect brand cloning. For higher fidelity the user can install a dedicated extractor skill (see README); not bundled by default.
+**Fidelity note:** the sweep captures static tokens + observed motion (transitions, scroll/hover diffs, smooth-scroll lib) — enough to re-implement the *feel* faithfully, but bespoke GSAP timelines / WebGL can only be approximated, not copied. For full pixel-perfect site cloning into Next.js, use a dedicated cloner template (see README 互补工具). This is observe+rebuild, not file copy.
 
 ## Stage 1 — Baseline (skill: design-md)
 
@@ -95,6 +95,7 @@ Playwright assertions across the whole flow.
 - Lenis active on all pages (smoothing engaged) under default motion preference.
 - `prefers-reduced-motion: reduce` emulation → Lenis off, animations skipped, no layout shift.
 - Zero console errors across the flow.
+- **Clone mode only (Stage 0.5 ran):** side-by-side visual diff — screenshot the built page vs the original URL at desktop 1440 + mobile 390, section by section; flag any visible discrepancy and fix (re-extract if the spec was wrong, fix the component if the build was wrong).
 
 ## Handoff contract
 
