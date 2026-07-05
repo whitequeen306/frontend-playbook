@@ -28,14 +28,14 @@ Each stage carries a concrete verify gate (e.g. `designmd lint` exit 0, computed
 
 The playbook names these skills at each stage; install them so the conductor can hand off.
 
-| Skill | Required? | Install |
+| Skill | Required? | Source |
 |---|---|---|
-| `frontend-design` | yes | `npx skills add anthropics/skills@frontend-design -g -y` |
-| `webapp-testing` | yes | `npx skills add anthropics/skills@webapp-testing -g -y` |
-| `gsap-core` / `-react` / `-frameworks` / `-scrolltrigger` / `-performance` | yes (agent picks variant by stack) | `npx skills add https://github.com/greensock/gsap-skills -g -y` |
-| `performance-optimization` | optional | Not auto-installed (cortexloop distribution). Stage 4 degrades to Playwright-based metrics (CLS / LCP / long-tasks) if absent. |
+| `frontend-design` | yes | `anthropics/skills` repo (skill at `skills/frontend-design`) |
+| `webapp-testing` | yes | `anthropics/skills` repo (skill at `skills/webapp-testing`) — **a separate skill**, just published in the same repo |
+| `gsap-core` / `-react` / `-frameworks` / `-scrolltrigger` / `-performance` | yes (agent picks variant by stack) | `greensock/gsap-skills` repo |
+| `performance-optimization` | optional | cortexloop distribution; not auto-installed. Stage 4 degrades to Playwright-based metrics (CLS / LCP / long-tasks) if absent. |
 
-> Tip: to install the whole `anthropics/skills` repo (also gives docx / pdf / xlsx / pptx), use `npx skills add https://github.com/anthropics/skills -g -y`.
+These are **auto-detected and auto-pulled** on first run by `frontend-playbook/scripts/ensure-prereqs.{ps1,sh}` (see Install below). To install manually: `npx skills add https://github.com/anthropics/skills -g -y` (whole Anthropic collection — includes frontend-design, webapp-testing, docx/pdf/xlsx/pptx) and `npx skills add https://github.com/greensock/gsap-skills -g -y`.
 
 Runtime libraries (the agent installs these per project — no global setup needed): `gsap` and `lenis` via npm; the `@google/design.md` CLI via `npx`.
 
@@ -49,15 +49,17 @@ npx skills add https://github.com/whitequeen306/opencode-frontend-toolkit -g -y
 git clone https://github.com/whitequeen306/opencode-frontend-toolkit ~/.config/opencode/skills/opencode-frontend-toolkit
 ```
 
-Then install prerequisites:
+**Prerequisites auto-install on first run.** The first time `frontend-playbook` triggers, Stage 0 runs `frontend-playbook/scripts/ensure-prereqs.ps1` (Windows) or `ensure-prereqs.sh` (Unix) — it scans your skill directories and auto-pulls anything missing via `npx skills add`, through opencode's bash permission gate (you stay in control). `performance-optimization` is optional and left to you.
+
+To run the check manually instead:
 
 ```powershell
 # Windows
-./install.ps1
+./install.ps1            # thin wrapper -> frontend-playbook/scripts/ensure-prereqs.ps1
 ```
 ```bash
 # Unix
-./install.sh
+./install.sh             # thin wrapper -> frontend-playbook/scripts/ensure-prereqs.sh
 ```
 
 Restart opencode after install — skills are scanned at startup, not hot-reloaded.

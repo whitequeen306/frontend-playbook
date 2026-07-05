@@ -12,6 +12,8 @@ Stack-agnostic (branches on React / Vue / Svelte / vanilla). Lenis smooth scroll
 
 ## Stage 0 — Detect stack (run first, before anything)
 
+**Pre-flight (idempotent, ~seconds):** run `scripts/ensure-prereqs.ps1` (Windows) or `scripts/ensure-prereqs.sh` (Unix) — relative to this skill's base directory — to detect and auto-install any missing prerequisite skills (`frontend-design`, `webapp-testing`, `gsap-*`; `performance-optimization` is optional and skipped). Auto-pull goes through opencode's bash permission gate, so the user stays in control. Skip only if you have confirmed all are present.
+
 Read `package.json` and config files. State the detected stack out loud before building — this choice ripples through every later stage.
 
 | Detect | Stack | gsap skill | Lenis integration | frontend-design output |
