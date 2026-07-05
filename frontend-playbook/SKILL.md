@@ -66,13 +66,27 @@ Hand frontend-design the `DESIGN.md` path **and** the exported theme. Instruct i
 
 Load the gsap variant from Stage 0. Add animation. Lenis is **default-on site-wide**.
 
-- **Thematic motion (design rule):** every effect must tie to the project's subject — the motion metaphor derives from the domain (photography → shutter / aperture / film grain / exposure; finance → counting / data ticks / precision; outdoor / sports → parallax / momentum; music → waveform / beat). Cool serves content, not itself — reject flashy-but-irrelevant effects (no skiing effect on a photography site). State the metaphor you chose and why before implementing.
+- **Thematic motion (design rule):** every effect must tie to the project's subject — the motion metaphor derives from the domain. Pick from the vocabulary below (or invent a better-fitting one), never impose an off-topic one. Cool serves content, not itself — reject flashy-but-irrelevant effects (no skiing effect on a photography site). State the metaphor you chose and why before implementing.
+
+  | Domain | Signature motions (gsap-built) |
+  |---|---|
+  | Photography | aperture iris open, film-advance scroll, grain overlay, exposure-shift hover |
+  | Finance / data | count-up numbers, tick flashes, data cascade, chart draw-on |
+  | Music / audio | waveform, beat-synced pulse, equalizer bars, vinyl spin |
+  | Architecture | blueprint grid reveal, section parallax pin, elevation cross-section |
+  | Fashion / editorial | runway curtain reveal, magazine spread flip, typographic kerning sweep |
+  | Gaming | glitch slice, scanline, particle burst, CRT flicker |
+  | Food / drink | steam particles, slow macro zoom, pour fill |
+  | Outdoor / sport | momentum parallax, trail streaks, elevation gain |
+
+- **Signature moment (mandatory):** every page designates **one** unforgettable beat — the thing people remember — and builds it with gsap as the centerpiece (e.g. the aperture-open hero, the count-up dashboard, the runway reveal). Generic pages vs award-tier pages usually differ by exactly this one moment. Name it before implementing; if you can't name one, the design is generic — go back.
 - **Lean gsap for the cool stuff:** GSAP for timelines / choreography / scroll-linked / FLIP / SVG morph; CSS-only for simple hovers/transitions. Don't escalate to GSAP where CSS suffices (perf, per **gsap-performance**).
 - Wire Lenis ↔ ScrollTrigger: `lenis.on('scroll', ScrollTrigger.update)`; drive `lenis.raf` from `gsap.ticker` + `ScrollTrigger.update`. (Full detail in **gsap-scrolltrigger**; just ensure this wiring exists.)
 - **Reduced-motion (mandatory):** wrap all motion in `gsap.matchMedia({ '(prefers-reduced-motion: no-preference)': … })`; under reduced-motion, disable Lenis smoothing (`smoothWheel: false` or skip init) and skip non-essential animations. See **gsap-performance**.
 
 **Verify gate:**
 - Thematic fit: every effect has a stated justification tying it to the project's subject; no flashy-but-irrelevant effects shipped.
+- Signature moment: one named, built as the gsap centerpiece (not just "some animations").
 - Animate only `transform` / `opacity` (no layout-thrash props) — gsap-performance rule.
 - 60fps target on hero/landing scroll.
 - Emulate `prefers-reduced-motion: reduce` → Lenis off, animations skipped, no layout shift.
