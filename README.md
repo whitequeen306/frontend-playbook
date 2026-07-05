@@ -1,0 +1,91 @@
+# opencode-frontend-toolkit
+
+Opencode skills for the end-to-end frontend build pipeline — **design.md baseline → frontend-design → gsap+Lenis → performance → Playwright verify**. Stack-agnostic (React / Vue / Svelte / vanilla). Lenis smooth scroll default-on, gated behind `prefers-reduced-motion`.
+
+## What's in the box
+
+| Skill | Role |
+|---|---|
+| `frontend-playbook` | Conductor. Defines stage order, per-stack decisions, handoff contracts, and a verification gate at each stage. The only thing an agent loads to run the whole pipeline. |
+| `design-md` | Community skill for Google's DESIGN.md format (no official skill exists). Author / lint / export a portable design-token source-of-truth at the project root. |
+
+Both are discovered on demand by opencode's `**/SKILL.md` scanner.
+
+## The pipeline
+
+```
+DESIGN.md (tokens + rationale)
+   │ designmd lint + export
+   ├─► tailwind theme / CSS @theme / DTCG
+   ▼
+frontend-design ─► gsap + Lenis ─► performance ─► webapp-testing
+   (build UI)        (motion)        (audit)        (verify)
+```
+
+Each stage carries a concrete verify gate (e.g. `designmd lint` exit 0, computed styles == tokens, 60fps, zero console errors). Full detail in [`frontend-playbook/SKILL.md`](frontend-playbook/SKILL.md).
+
+## Prerequisites
+
+The playbook names these skills at each stage; install them so the conductor can hand off.
+
+| Skill | Required? | Install |
+|---|---|---|
+| `frontend-design` | yes | `npx skills add anthropics/skills@frontend-design -g -y` |
+| `webapp-testing` | yes | `npx skills add anthropics/skills@webapp-testing -g -y` |
+| `gsap-core` / `-react` / `-frameworks` / `-scrolltrigger` / `-performance` | yes (agent picks variant by stack) | `npx skills add https://github.com/greensock/gsap-skills -g -y` |
+| `performance-optimization` | optional | Not auto-installed (cortexloop distribution). Stage 4 degrades to Playwright-based metrics (CLS / LCP / long-tasks) if absent. |
+
+> Tip: to install the whole `anthropics/skills` repo (also gives docx / pdf / xlsx / pptx), use `npx skills add https://github.com/anthropics/skills -g -y`.
+
+Runtime libraries (the agent installs these per project — no global setup needed): `gsap` and `lenis` via npm; the `@google/design.md` CLI via `npx`.
+
+## Install this toolkit
+
+```bash
+# option A — skills CLI (recommended)
+npx skills add https://github.com/whitequeen306/opencode-frontend-toolkit -g -y
+
+# option B — clone into your opencode skills dir
+git clone https://github.com/whitequeen306/opencode-frontend-toolkit ~/.config/opencode/skills/opencode-frontend-toolkit
+```
+
+Then install prerequisites:
+
+```powershell
+# Windows
+./install.ps1
+```
+```bash
+# Unix
+./install.sh
+```
+
+Restart opencode after install — skills are scanned at startup, not hot-reloaded.
+
+## Usage
+
+Just give a frontend task. The playbook auto-triggers on its description:
+
+> 用 React + Tailwind v4 做个 SaaS landing 页。品牌偏深森林绿 + 一抹祖母绿 accent，字体几何感，要有首屏动效和顺滑滚动。
+
+The agent loads `frontend-playbook`, runs Stage 0 (detect stack) → Stage 1 (author DESIGN.md + lint + export) → … → Stage 5 (Playwright verify), and hands you `DESIGN.md` + the built UI + a gate-by-gate report.
+
+For single-component tweaks or backend work it stays quiet (`Do NOT use for…` gate). Force it by mentioning `frontend-playbook` in your request.
+
+## How it was validated
+
+RED-GREEN tested per the `writing-skills` methodology:
+
+- **RED** (no playbook): agent skipped DESIGN.md and shipped unverified, unrendered code.
+- **GREEN** (with playbook): agent authored + linted DESIGN.md, ran Playwright 21/21, **caught and fixed a real LCP regression** (2516ms → 2296ms) on the first pass. Both gaps closed.
+
+## Licenses & attribution
+
+- `frontend-playbook/SKILL.md` — **MIT** (this repo).
+- `design-md/SKILL.md` — **Apache-2.0**; a community skill summarizing Google's DESIGN.md format. The format spec is owned by [`google-labs-code/design.md`](https://github.com/google-labs-code/design.md) (alpha, may change). This skill is **not** affiliated with or endorsed by Google.
+- Prerequisite skills (`frontend-design`, `webapp-testing`, `gsap-*`) retain their own licenses — install them from their official sources above.
+
+## Status
+
+- `design.md` format is `alpha` — re-sync `design-md/SKILL.md` when `@google/design.md` bumps.
+- `frontend-playbook` is `v0.1` (validated once via RED-GREEN). Not exhaustively loophole-closed; expect to iterate.
