@@ -7,6 +7,7 @@
 | Skill | 角色 |
 |---|---|
 | `frontend-playbook` | 指挥。定义阶段顺序、按栈决策、阶段间交接契约、每阶段一个验证 gate。agent 只需加载它就能跑完整流水线。 |
+| `frontend-playbook/motion-templates.md` | 8 个 domain 的深度代码模板(光圈/计数/波形/蓝图/走秀/故障/蒸汽/越野)。每个 ~60 行 GSAP + ~40 行 CSS,只用免费插件。Stage 3 depth floor 的参考下限。 |
 | `design-md` | Google DESIGN.md 格式的社区 skill（官方没出 skill）。在项目根写一份可移植的设计 token 源文件，lint + 导出。 |
 
 两个 skill 都被 agent 的 `**/SKILL.md` 扫描器按需发现。
