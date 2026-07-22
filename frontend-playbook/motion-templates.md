@@ -684,3 +684,306 @@ body { margin: 0; font-family: var(--font-body); color: var(--color-bone); }
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
 ```
+
+---
+
+## Motion Taste Principles (mirror frontend-design methodology)
+
+`frontend-design` achieves the **demo→enterprise leap** by being **taste-forward, not code-forward**: it commits to a bold direction, picks one unforgettable moment, refuses AI-generic choices. Apply the same discipline to motion. The depth floor above sets the *quantity* bar; this section sets the *quality* bar. Both must pass.
+
+### Commit to an extreme motion direction
+
+Pick one — never "some animations". State it before coding:
+- **Physical / simulated** — real weight, momentum, drag, restitution (silver halide dispersion, magnetic repel, water ripple, cloth drape)
+- **Mechanical / industrial** — gears, shutters, ratchets, deterministic clicks (aperture iris, film advance, CRT scanline)
+- **Organic / natural** — growth, bloom, drift, breathing (vine reveal, steam rise, ambient grain)
+- **Maximalist chaos** — every surface moves, dense and layered (glitch field, particle storm)
+- **Restrained / surgical** — one perfect beat, nothing else moves (curtain lift, single wipe)
+
+A page that mixes physical + maximalist + organic has no POV. Pick one, kill the others.
+
+### Differentiation — the one screenshot moment
+
+Name the one frame people would screenshot. If you can't name it in one sentence, the design is generic. "The cursor parts a field of silver halide crystals" is a moment. "The hero fades in" is not.
+
+### Motion is physical, not triggered
+
+Cursor should be a **force** in the world — displacing, attracting, repelling — not a hover trigger. The interaction model:
+- Cursor approaches → nearby elements **physically respond** (translate, rotate, scale, deflect) with **distance falloff**
+- Cursor leaves → elements **spring back** with elastic/restitution, never linear
+- Avoid: cursor as a state toggle (hover → on, leave → off). That is a button, not a signature.
+
+### Asymmetric motion
+
+Uniform stagger is the AI default. Vary it:
+- `stagger: { each: 0.04, from: 'center' }` — radiates outward
+- `stagger: { each: 0.04, from: 'random' }` — organic, no pattern
+- Function-based: `rotate: (i) => i * 7 + Math.sin(i) * 3` — breaks visual symmetry
+- Distance-from-cursor-based stagger — elements nearer the cursor react first
+
+### Atmosphere — the page is alive
+
+A static page between interactions is dead. Add **ambient breathing**:
+- Continuous `gsap.to(el, { repeat: -1, yoyo: true })` with very small amplitudes (1–3px, 1–4s)
+- Grain drift, slow rotation, subtle parallax — always at low amplitude so it never competes with content
+- The user should not notice it consciously; remove it and the page should feel dead
+
+### NEVER use AI-generic motion
+
+Banned (any one = FAIL):
+- `gsap.from(el, { y: 20, opacity: 0 })` on every section — the universal AI default
+- Single `ease: 'power2.out'` for all tweens — no POV
+- Fade-up as the only entrance — copy-paste laziness
+- Hover states that only change color — button, not signature
+- Cursor effects that only change color/brightness — trigger, not force
+- Centered, symmetric motion — predictable, no tension
+- "Reveal on scroll" with no spatial metaphor — fade-ups dressed as reveals
+
+### Match complexity to vision
+
+A physical simulation needs real per-frame math (rAF + vector math), not a gsap tween. A curtain lift needs one timeline. Don't write 200 lines for a fade, don't write 5 lines for a particle field. The motion-templates below show the *right* complexity for each metaphor.
+
+---
+
+## 9. Photography / Scientific — silver halide crystal dispersion
+
+The signature for photography / scientific / material brands. A field of small "silver halide" crystals (the light-sensitive crystals on real film) sits on a surface. As the cursor moves through the field, nearby crystals **physically disperse** outward — translating, rotating, scaling down — then **spring back** with elastic restitution when the cursor leaves. The cursor is a wave of light; the crystals are the photographic substrate parting around it. Cool serves the literal subject of photography.
+
+This is the most demanding template — it requires per-frame vector math, not a tween. Use it when the page warrants a real physical moment.
+
+```jsx
+// src/components/SilverHalideField.jsx
+import { useGSAP } from '@gsap/react';
+import gsap from 'gsap';
+import { useRef, useMemo } from 'react';
+import { useLenis } from '../hooks/useLenis';
+
+gsap.registerPlugin(useGSAP);
+
+const COLS = 28;           // grid columns
+const ROWS = 18;           // grid rows
+const RADIUS = 160;        // cursor influence radius (px)
+const MAX_PUSH = 80;       // max displacement (px)
+const ROTATION_AMP = 1.5;  // rotation amplification (radians per push unit)
+
+// Generate crystal grid with per-crystal jitter so it doesn't read as a perfect grid
+function useCrystals() {
+  return useMemo(() => {
+    const cells = [];
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const jx = (Math.random() - 0.5) * 6;
+        const jy = (Math.random() - 0.5) * 6;
+        const size = 2 + Math.random() * 3;
+        const delay = Math.random() * 0.4;  // spring-back stagger
+        cells.push({ id: r * COLS + c, c, r, jx, jy, size, delay });
+      }
+    }
+    return cells;
+  }, []);
+}
+
+export default function SilverHalideField({ className }) {
+  const containerRef = useRef(null);
+  const fieldRef = useRef(null);
+  const crystals = useCrystals();
+  useLenis();
+
+  useGSAP(() => {
+    const els = gsap.utils.toArray('.crystal');
+    if (!els.length) return;
+
+    // Store home position as data attribute (relative to field, in px)
+    const fieldRect = () => fieldRef.current.getBoundingClientRect();
+
+    els.forEach((el) => {
+      const r = el.dataset.row | 0;
+      const c = el.dataset.col | 0;
+      // home position = relative cell origin + jitter (computed at layout)
+      // we re-read on each pointermove since rect changes with scroll/resize
+      el._home = null;  // lazy compute
+    });
+
+    const computeHome = (el) => {
+      const fr = fieldRect();
+      const er = el.getBoundingClientRect();
+      return {
+        x: er.left - fr.left + er.width / 2,
+        y: er.top - fr.top + er.height / 2,
+      };
+    };
+
+    // === Per-frame dispersion (rAF-throttled) ===
+    let cursor = { x: -9999, y: -9999, active: false };
+    let raf = null;
+    let needsUpdate = false;
+
+    const apply = () => {
+      needsUpdate = false;
+      const fr = fieldRect();
+      // cursor in field-local coords
+      const cx = cursor.x - fr.left;
+      const cy = cursor.y - fr.top;
+
+      for (const el of els) {
+        if (!el._home) el._home = computeHome(el);
+        const dx = el._home.x - cx;
+        const dy = el._home.y - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < RADIUS) {
+          const force = (1 - dist / RADIUS);
+          const nx = dx / (dist || 1);
+          const ny = dy / (dist || 1);
+          const push = force * MAX_PUSH;
+          const rot = force * ROTATION_AMP * (Math.sign(dy) || 1);
+          const scale = 1 - force * 0.4;
+          el.style.transform = `translate(${nx * push}px, ${ny * push}px) rotate(${rot}rad) scale(${scale})`;
+          el.style.opacity = 1 - force * 0.3;
+        } else {
+          // outside influence — let spring-back handle it
+        }
+      }
+    };
+
+    const scheduleApply = () => {
+      if (needsUpdate) return;
+      needsUpdate = true;
+      raf = requestAnimationFrame(apply);
+    };
+
+    // === Spring back when cursor leaves the field ===
+    const springBack = () => {
+      els.forEach((el, i) => {
+        gsap.to(el, {
+          x: 0, y: 0, rotation: 0, scale: 1, opacity: 1,
+          duration: 1.2,
+          ease: 'elastic.out(1, 0.4)',
+          delay: el._springDelay || (i * 0.002),
+          overwrite: 'auto',
+        });
+        el.style.transform = '';
+      });
+    };
+
+    const onMove = (e) => {
+      cursor.x = e.clientX;
+      cursor.y = e.clientY;
+      cursor.active = true;
+      // kill any spring-back in progress
+      gsap.killTweensOf(els);
+      scheduleApply();
+    };
+    const onLeave = () => {
+      cursor.active = false;
+      cursor.x = -9999; cursor.y = -9999;
+      springBack();
+    };
+
+    window.addEventListener('pointermove', onMove, { passive: true });
+    fieldRef.current?.addEventListener('pointerleave', onLeave);
+
+    // === Ambient breathing (atmosphere — page is alive) ===
+    gsap.to('.crystal', {
+      scale: (i) => 0.96 + (i % 7) * 0.008,
+      duration: () => 2.4 + Math.random(),
+      repeat: -1, yoyo: true,
+      ease: 'sine.inOut',
+      stagger: { each: 0.02, from: 'random' },
+    });
+
+    // === Scroll-in: field draws on via stroke-dashoffset metaphor (crystals fade up staggered) ===
+    gsap.from('.crystal', {
+      opacity: 0, scale: 0,
+      duration: 0.6, ease: 'power2.out',
+      stagger: { each: 0.005, from: 'center' },
+      scrollTrigger: { trigger: fieldRef.current, start: 'top 75%', once: true },
+    });
+
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      fieldRef.current?.removeEventListener('pointerleave', onLeave);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, { scope: containerRef });
+
+  return (
+    <section ref={containerRef} className={className || 'halide-field-section'}>
+      <div ref={fieldRef} className="halide-field">
+        {crystals.map((c) => (
+          <span
+            key={c.id}
+            className="crystal"
+            data-row={c.r}
+            data-col={c.c}
+            style={{
+              '--size': c.size + 'px',
+              '--jx': c.jx + 'px',
+              '--jy': c.jy + 'px',
+            }}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+```
+
+```css
+/* src/styles/halide-field.css */
+.halide-field-section {
+  position: relative;
+  min-height: 80vh;
+  background: var(--color-ink);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  cursor: none;  /* custom cursor or hidden — this is a "physical" surface */
+}
+.halide-field {
+  position: relative;
+  width: 100%;
+  max-width: 1200px;
+  aspect-ratio: 16 / 9;
+  display: grid;
+  grid-template-columns: repeat(28, 1fr);
+  grid-template-rows: repeat(18, 1fr);
+}
+.crystal {
+  display: block;
+  width: var(--size, 3px);
+  height: var(--size, 3px);
+  background: var(--color-bone);
+  opacity: 0.4;
+  border-radius: 50%;
+  transform: translate(var(--jx, 0), var(--jy, 0));
+  transform-origin: center;
+  will-change: transform, opacity;
+  transition: opacity 0.3s;  /* opacity can transition; transform is rAF-driven */
+  mix-blend-mode: screen;
+}
+/* A few crystals are amber — the "exposed" silver halide */
+.crystal:nth-child(7n),
+.crystal:nth-child(13n) {
+  background: var(--color-amber);
+  opacity: 0.7;
+}
+/* Subtle safelight glow that follows cursor within the field */
+.halide-field-section::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle 200px at var(--mx, -200%) var(--my, -200%),
+    rgba(212, 162, 78, 0.12), transparent 60%);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  z-index: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .crystal { transform: none !important; opacity: 0.5 !important; }
+  .halide-field-section::before { display: none !important; }
+}
+@media (hover: none) {
+  /* on touch, no cursor — show a static "scattered" state so the field has personality */
+  .crystal { transform: translate(var(--jx, 0), var(--jy, 0)) rotate(var(--rot, 0deg)); opacity: 0.5; }
+}
+```
