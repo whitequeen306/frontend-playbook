@@ -987,3 +987,244 @@ export default function SilverHalideField({ className }) {
   .crystal { transform: translate(var(--jx, 0), var(--jy, 0)) rotate(var(--rot, 0deg)); opacity: 0.5; }
 }
 ```
+
+---
+
+## 10. 3D / WebGL — mouse displacement field (Three.js + R3F)
+
+**When to escalate to Three.js.** CSS/SVG motion (templates 1–9) handles 90% of signature moments. Escalate to real 3D when ANY of these are true:
+
+- The base state itself needs **real perspective / depth / parallax** that CSS `perspective` cannot fake convincingly (CSS 3D has no real lighting, no fog, no PBR materials)
+- The cursor interaction is **raycast onto a 3D surface** and displaces nearby geometry **along the surface normal** (not 2D translate)
+- The signature requires **physical objects in space** — polaroids floating, ice blocks assembled, product cards on a wall, architectural models
+- Reference sites in this tier (igloo.inc, Sembilan, Lusion, Active Theory) all use Three.js — CSS cannot match their quality bar
+
+Do NOT escalate to Three.js for: 2D hovers, scroll-triggered tweens, single-page-load reveals, anything in templates 1–9. Escalation cost is real (Three.js + R3F +50KB+ gzipped, WebGL context, more complex reduced-motion + mobile fallback). Match complexity to vision.
+
+**Pattern (the "igloo.inc" signature):** a wall/grid of physical objects in 3D space. Cursor raycasts onto the wall plane (z=0). Objects within RADIUS of the cursor **lift toward the camera** (Z+) with distance falloff + rotational tilt toward force direction. When the cursor leaves the canvas, objects **spring back to home** via per-frame `lerp` (no GSAP elastic — the lerp itself produces elastic-feel motion at k≈0.06).
+
+This is the only template that requires a real render loop. Treat the per-frame lerp as the easing — it produces smoother, physics-feel motion than tweens for continuous cursor tracking.
+
+```jsx
+// src/components/Hero.jsx — 3D photo wall (polaroids lift toward camera under cursor)
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { useRef, useMemo, useEffect } from 'react';
+import * as THREE from 'three';
+import { useGSAP } from '@gsap/react';
+import gsap from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
+
+gsap.registerPlugin(ScrollTrigger, useGSAP);
+
+// === TUNABLES — adapt per project ===
+const COLS = 6, ROWS = 5;
+const RADIUS = 2.4;      // 3D-units cursor influence on the wall
+const MAX_LIFT = 2.0;    // how far an object lifts toward camera
+const ROT_AMP = 0.35;    // radians of tilt at full force
+const GRID_X = 1.55, GRID_Y = 1.85;
+
+function DisplacementField() {
+  const { camera } = useThree();
+
+  // Build per-object home positions + per-object mesh refs
+  const objects = useMemo(() => {
+    const arr = [];
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      const home = new THREE.Vector3(
+        (c - (COLS - 1) / 2) * GRID_X,
+        ((ROWS - 1) / 2 - r) * GRID_Y,
+        (Math.random() - 0.5) * 0.15,  // z-jitter, breaks perfect grid
+      );
+      arr.push({
+        id: r * COLS + c,
+        home,
+        meshRef: { current: null },
+        exposed: Math.random() < 0.18,  // ~18% are "accent" objects (brand color, emissive)
+      });
+    }
+    return arr;
+  }, []);
+
+  // Cursor 3D position via raycast onto wall plane
+  const cursor = useRef(new THREE.Vector3());
+  const raycaster = useMemo(() => new THREE.Raycaster(), []);
+  const wallPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), []);
+  const hasMouse = useRef(false);
+
+  // Attach pointer enter/move/leave to the WebGL canvas (R3F creates it async — retry until ready)
+  useEffect(() => {
+    let canvas, onEnter, onMove, onLeave;
+    const attach = () => {
+      canvas = document.querySelector('.hero-3d canvas');
+      if (!canvas) return false;
+      onEnter = () => { hasMouse.current = true; };
+      onMove = () => { hasMouse.current = true; };
+      onLeave = () => { hasMouse.current = false; };  // triggers spring-back
+      canvas.addEventListener('pointerenter', onEnter);
+      canvas.addEventListener('pointermove', onMove);
+      canvas.addEventListener('pointerleave', onLeave);
+      return true;
+    };
+    if (!attach()) {
+      const i = setInterval(() => { if (attach()) clearInterval(i); }, 100);
+      return () => { clearInterval(i); if (canvas) [onEnter, onMove, onLeave].forEach(fn => canvas.removeEventListener(fn.name, fn)); };
+    }
+    return () => { if (canvas) [onEnter, onMove, onLeave].forEach(fn => canvas.removeEventListener(fn.name, fn)); };
+  }, []);
+
+  useFrame((state) => {
+    // raycast only when pointer is over the canvas
+    if (hasMouse.current) {
+      raycaster.setFromCamera(state.mouse, camera);
+      const target = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(wallPlane, target)) cursor.current.copy(target);
+    }
+    const c = cursor.current;
+    const k = 0.18;      // toward target
+    const springK = 0.06; // toward home (spring-back)
+
+    for (const o of objects) {
+      const m = o.meshRef.current;
+      if (!m) continue;
+      const dx = o.home.x - c.x, dy = o.home.y - c.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (hasMouse.current && dist < RADIUS) {
+        const force = 1 - dist / RADIUS;
+        const tz = o.home.z + force * MAX_LIFT;
+        const rx = force * ROT_AMP * Math.sign(dy);
+        const ry = force * ROT_AMP * Math.sign(-dx);
+        m.position.x = THREE.MathUtils.lerp(m.position.x, o.home.x, k);
+        m.position.y = THREE.MathUtils.lerp(m.position.y, o.home.y, k);
+        m.position.z = THREE.MathUtils.lerp(m.position.z, tz, k);
+        m.rotation.x = THREE.MathUtils.lerp(m.rotation.x, rx, k);
+        m.rotation.y = THREE.MathUtils.lerp(m.rotation.y, ry, k);
+      } else {
+        m.position.x = THREE.MathUtils.lerp(m.position.x, o.home.x, springK);
+        m.position.y = THREE.MathUtils.lerp(m.position.y, o.home.y, springK);
+        m.position.z = THREE.MathUtils.lerp(m.position.z, o.home.z, springK);
+        m.rotation.x = THREE.MathUtils.lerp(m.rotation.x, 0, springK);
+        m.rotation.y = THREE.MathUtils.lerp(m.rotation.y, 0, springK);
+      }
+    }
+  });
+
+  return (
+    <group>
+      {objects.map((o) => (
+        <group key={o.id} ref={(el) => { o.meshRef.current = el; }} position={o.home.toArray()}>
+          <mesh>
+            {/* ADAPT per domain: polaroids (1.35x1.7 plane) / product cards / album covers / book covers / architectural tiles */}
+            <planeGeometry args={[1.35, 1.7]} />
+            <meshStandardMaterial
+              color={o.exposed ? '#3a2a14' : '#0e0e12'}
+              roughness={0.55}
+              metalness={0.05}
+              emissive={o.exposed ? '#d4a24e' : '#000000'}
+              emissiveIntensity={o.exposed ? 0.12 : 0}
+            />
+          </mesh>
+          <mesh position={[0.69, 0, 0.001]}>
+            <planeGeometry args={[0.04, 1.7]} />
+            <meshBasicMaterial color={o.exposed ? '#d4a24e' : '#6b6a66'} transparent opacity={o.exposed ? 0.7 : 0.25} />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  );
+}
+
+function Scene() {
+  return (
+    <>
+      <ambientLight intensity={0.35} />
+      <directionalLight position={[2, 4, 6]} intensity={1.1} color="#f0ece1" />
+      <directionalLight position={[-3, -2, 4]} intensity={0.4} color="#d4a24e" />
+      <pointLight position={[0, 0, 5]} intensity={0.6} color="#d4a24e" distance={12} />
+      <DisplacementField />
+      {/* fog gives real depth that CSS perspective cannot */}
+      <fog attach="fog" args={['#050507', 6, 14]} />
+    </>
+  );
+}
+
+export default function Hero() {
+  const containerRef = useRef(null);
+  useGSAP(() => {
+    gsap.from('.hero-3d-overlay > *', { opacity: 0, y: 20, stagger: 0.1, duration: 0.8, ease: 'power3.out', delay: 0.5 });
+    gsap.from('.hero-3d-meta, .hero-3d-scroll', { opacity: 0, duration: 0.6, ease: 'power2.out', stagger: 0.1, delay: 1.0 });
+    gsap.timeline({
+      scrollTrigger: { trigger: containerRef.current, start: 'top top', end: '+=500', scrub: 0.6, pin: true },
+    })
+      .to('.hero-3d-canvas', { scale: 1.08, ease: 'none' }, 0)
+      .to('.hero-3d-overlay, .hero-3d-meta, .hero-3d-scroll', { opacity: 0, duration: 0.3, ease: 'power2.out' }, 0.3);
+  }, { scope: containerRef });
+
+  return (
+    <section ref={containerRef} id="top" className="hero-3d">
+      <div className="hero-3d-canvas">
+        <Canvas camera={{ position: [0, 0, 8], fov: 50 }} dpr={[1, 2]} gl={{ antialias: true, alpha: true }}>
+          <Scene />
+        </Canvas>
+      </div>
+      <div className="hero-3d-overlay">
+        <span className="hero-3d-eyebrow font-mono tracking-caps">EST. 2014 · BERLIN</span>
+        <h1 className="hero-3d-title font-display">HALIDE</h1>
+        <p className="hero-3d-sub font-display-md">Light, <em>recorded</em>.</p>
+      </div>
+      <div className="hero-3d-meta font-mono tracking-caps">
+        <span>35mm</span><span className="dot" /><span>f/1.4</span><span className="dot" /><span>ISO 400</span>
+      </div>
+      <div className="hero-3d-scroll font-mono tracking-caps">Move cursor through the wall</div>
+      <div className="grain" aria-hidden="true" />
+    </section>
+  );
+}
+```
+
+```css
+/* src/styles/sections.css — 3D hero */
+.hero-3d { position: relative; min-height: 100vh; background: var(--color-ink); overflow: hidden; }
+.hero-3d-canvas { position: absolute; inset: 0; z-index: 2; transform-origin: center; will-change: transform; }
+.hero-3d-canvas canvas { width: 100% !important; height: 100% !important; display: block; }
+.hero-3d-overlay { position: absolute; top: clamp(5rem, 12vh, 8rem); left: clamp(2rem, 5vw, 4rem); z-index: 4; pointer-events: none; }
+.hero-3d-title {
+  font-family: var(--font-display-xl), serif; font-variation-settings: 'opsz' 144, 'wght' 300;
+  font-size: clamp(3.5rem, 8vw, 6rem); color: var(--color-bone); margin: 0;
+  line-height: 0.88; letter-spacing: -0.04em; font-weight: 300;
+  text-shadow: 0 0 50px rgba(10, 10, 12, 0.85);
+}
+.hero-3d-sub em { color: var(--color-amber); font-style: italic; }
+.hero-3d-meta {
+  position: absolute; top: clamp(5rem, 12vh, 8rem); right: clamp(2rem, 5vw, 4rem); z-index: 4;
+  display: flex; gap: 0.75rem; color: var(--color-smoke); font-size: var(--text-label-caps);
+}
+.hero-3d-meta .dot { width: 3px; height: 3px; background: var(--color-amber); border-radius: 50%; display: inline-block; }
+.hero-3d-scroll {
+  position: absolute; bottom: 2rem; left: 50%; transform: translateX(-50%); z-index: 4;
+  color: var(--color-smoke); font-size: 9px; white-space: nowrap; letter-spacing: 0.18em;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-3d-canvas { opacity: 0.5 !important; }
+  .hero-3d-overlay, .hero-3d-meta, .hero-3d-scroll, .hero-3d-overlay > * { opacity: 1 !important; transform: none !important; }
+}
+```
+
+### How to vary the metaphor (not just photography)
+
+The displacement field pattern is domain-agnostic — only the **displaced objects** change:
+
+| Domain | Wall made of | Lifted metaphor |
+|---|---|---|
+| Photography / portfolio | Polaroid prints | "rifling through a contact sheet" |
+| E-commerce | Product cards | "browsing a display wall" |
+| Music / label | Album covers | "thumbing through vinyl" |
+| Publishing | Book covers | "scanning a shelf" |
+| Architecture | Building tiles | "exploded elevation view" |
+| Gaming | Card packs | "deck of loot cards" |
+| Agency | Project case study cards | "stacked deliverables" |
+
+The constants (RADIUS, MAX_LIFT, ROT_AMP, GRID_X, GRID_Y, lighting colors, fog) shift per domain — gaming wants more ROT_AMP + chaos, architecture wants strict grid + low ROT_AMP. Adapt, don't copy.
+
+### Why per-frame lerp instead of gsap.elasticOut
+
+GSAP `elastic.out` is for one-shot tweens (curtain lift, count-up). For **continuous cursor tracking**, GSAP's tween machinery is the wrong tool — every pointermove would kill the old tween and start a new one. Per-frame `lerp(current, target, 0.18)` is the right tool: smooth, frame-rate independent, no tween overhead. The spring-back `lerp(current, home, 0.06)` produces elastic-feel motion at fraction the cost. **Match complexity to vision**: this is Motion Taste Principle #7 applied.
