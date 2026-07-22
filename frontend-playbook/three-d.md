@@ -147,7 +147,83 @@ These apply regardless of category. Violating them = FAIL the build gate.
 
 ---
 
-## 7. Workflow gate (how this manual plugs into the pipeline)
+## 7. Solidity craft — making 3D read as a real object (立体感 + 实物感)
+
+A category choice (§2) names the metaphor; this section makes it read as a solid thing. The failure mode to avoid: "随便一个3D建模糊弄一下" — vague floating shapes that aren't recognizably anything. A building must read as a building, a product as a product. Solidity is not automatic from choosing category A/C — it comes from the six concrete crafts below. Skip any one and the output slides toward "a CGI blob". **At minimum the result must be a recognizable thing — if a no-context viewer can't name the object from a static screenshot, it is not done.**
+
+### 7.1 Geometry — real thickness, form, and designed variation
+
+- **Solids are boxes/extrusions with real thickness, never flat `planeGeometry`.** A floor slab is `boxGeometry(width, 0.14–0.20, depth)` where thickness is 5–8% of the span. A wall has depth. A product body has real topology (extruded profile, boolean cutouts). A bare plane reads as a card, not a thing. (Category D wireframe and category F fluid surface are the deliberate exceptions — they are *surfaces* and *lines*, not objects.)
+- **Bevel the edges.** Real objects don't have razor edges. Use `RoundedBoxGeometry` (from `@react-three/drei`) with `radius=0.02–0.04, segments=4`. The bevel catches a 1–2px highlight along the top edge that instantly reads as "machined object" vs "Unity cube". For non-box forms, `ExtrudeGeometry` with `bevelEnabled: true, bevelSize: 0.02, bevelThickness: 0.02`.
+- **Add designed geometric variation — massing, not primitives.** A raw box looks CGI. For category A, vary each slab's footprint (width/depth ±0.4) and add setbacks/cantilevers (plan offset ±0.3) so the stack reads as *a designed building*, not a stack of identical plates. For C, break the monolith's silhouette with a chamfer or inset facet. Identical repeated primitives = the AI-default "grid of cubes" tell.
+- **Get proportions right.** A building slab is wider/longer than tall. A car body is long and low. A ceramic vessel is taller than wide. Wrong aspect ratio is the fastest way "a thing" becomes "a shape". Pull the real object's proportions before sizing in scene units.
+- **Edges definition via `EdgesGeometry`.** Add `<lineSegments>` with `<edgesGeometry>` + `<lineBasicMaterial>` at ~0.5 opacity in a tone 2–3 stops darker than the fill. This crisp contour is what makes a slab read as a *drafted floor plate* rather than a grey box. Use for A, structural B, D.
+
+### 7.2 Materials — PBR that gives weight, not flat color
+
+- **Always `meshStandardMaterial` for solids, never `meshBasicMaterial`.** Basic material has no light response = flat, weightless, CGI. Standard (PBR) responds to roughness/metalness/environment = weight.
+- **Roughness is the #1 solidity lever.** Concrete 0.85–0.95 (chalky, absorbs light). Brushed steel 0.35–0.5 (soft highlight). Polished metal 0.1–0.2 (sharp specular). Glass 0.05–0.1. Wood 0.6–0.75. **Wrong roughness = plastic.** The most common failure: roughness 0.5 everywhere → everything looks like grey plastic.
+- **Metalness by material, not by default.** Steel/metal 0.6–0.9. Concrete/ceramic/wood/fabric 0.0–0.1. Never 0.5 "everywhere". Metalness on a non-metal = glowing plastic.
+- **Per-piece color variation.** A real concrete slab isn't one flat hex. Add ±3–5% lightness variation per instance (a low-amplitude noise tint or a per-piece `color` offset). Identical color on N pieces reads as "instanced copies"; slight variation reads as "real materials".
+- **Texture maps beat flat color for hero objects.** For the one signature object (category C especially), use a real texture: concrete (roughness map + subtle normal), brushed metal (anisotropic highlight), wood (grain normal). A 256×256 tileable is enough. Flat color on a hero object = the cheapest possible 3D.
+- **Emissive only for accents.** ~16% of pieces may be the "accent" (rust crown, lit crystal) with `emissive` color + `emissiveIntensity 0.15–0.25`. Never emissive everywhere — glows = not solid.
+
+### 7.3 Lighting — the thing that makes volume visible
+
+Three lights minimum. One light = flat, no volume. This is non-negotiable for solidity.
+
+- **KEY — raking, low-angle directional.** `<directionalLight position={[6, 3, 4]} intensity={1.0} castShadow />`. Low angle grazes across surfaces, casting long shadows off slab edges and revealing texture/form. Front light (high, behind camera) flattens; raking light volumizes. This is THE architectural-rendering light.
+- **FILL — opposite side, dimmer, color-tinted.** `<directionalLight position={[-5,-1,3]} intensity={0.35} color="#b8542a" />`. Lifts the shadow side without killing the key's form. Tint to the brand's warm accent or cool secondary.
+- **RIM — behind, separates object from background.** `<pointLight position={[0,2,-6]} intensity={0.5} color="#5a6b78" />` (behind the object, cool tone). Draws the silhouette edge so the object separates from the ink background.
+- **Ambient — very low.** `<ambientLight intensity={0.3} color="#ece8dd" />` max. Too much ambient flattens volume; it exists only to lift absolute blacks.
+
+### 7.4 Shadows + AO — what grounds objects as solid
+
+- **Enable shadow maps.** `<Canvas shadows>` (or `gl={{ shadows: true }}`), `castShadow` + `receiveShadow` on every solid mesh, `directionalLight castShadow` with `shadow-mapSize-width/height={[2048,2048]}` and tuned `shadow-camera` bounds. Without shadows, objects hover in a void — hovering = CGI. Shadows = sits.
+- **Contact shadows for hero objects.** `<ContactShadows>` from `@react-three/drei` under category C (the monolith) — a soft ground shadow that anchors it. A floating product without a contact shadow reads as a cutout.
+- **Ambient occlusion for stacked forms.** For category A (stacked slabs) and B (dense fields), the crevices between objects MUST go dark. If not using post-proc SSAO, fake it: a low `ambientLight` + a downward `directionalLight` leaves the underside of each slab dark — that gradient IS the occlusion that reads "stacked solid" not "floating cards".
+- **Self-shadowing on the explode.** When category A's slabs separate, the shadow each slab casts on the one below is what reveals the gap is real space, not a 2D offset. No self-shadow = flat stack.
+
+### 7.5 Atmosphere + camera — depth and scale
+
+- **Fog (near ~6, far ~16) is mandatory.** `<fog attach="fog" args={['#08090b', 6, 16]} />`. Without fog, Z-depth collapses — top/bottom slabs of category A, far particles of B, all sit on the same plane visually. Fog separates them into real space. Tone fog to the background so objects fade into atmosphere, not into a wall.
+- **Background distinct from object.** Dark ink bg (#08090b) + warm concrete object (#9c958a) — the silhouette reads in 1 frame. Same-tone bg+object = mud.
+- **Camera fov 38–46.** Low fov = orthogonal, architectural, designed. High fov (>55) = fish-eye, cheap, mobile-camera. 42–44 is the architectural sweet spot.
+- **Object fills 40–60% of frame height.** Too small = "a floating shape"; too big = "a wall of material". Find the framing where it reads as "a thing in space".
+
+### 7.6 Per-category "what makes it a thing" — the concrete recipe
+
+Each category has one specific move that, if missed, collapses solidity:
+
+- **A — exploded axonometric → reads as "a building in section" when:** slabs are real boxes (thickness 5–8% of span) with plan offsets/cantilevers, 2 core columns threading through (dark steel, metalness 0.7), concrete roughness 0.9, **raking key light + self-shadowing** so each separating slab casts on the one below, edge lines on every slab, one rust crown slab (corten cap). Miss the cores or the self-shadow → reads as "floating cards", not a building.
+- **B — particle field → reads as "discrete objects on a surface" when:** each crystal/polaroid is a real thin box (thickness 0.02–0.04) with slight per-piece random rotation (±0.1rad on all axes) and scale variation (±15%), edge lines, fog separating the Z layers. Identical flat planes with no rotation → reads as "a tiled wall", not a field of objects.
+- **C — monolith → reads as "a sculptural object" when:** ONE `RoundedBoxGeometry` (or extruded profile) with bevel, a real PBR texture map, slow auto-rotation (0.05–0.08 rad/s), **contact shadow** grounding it, three-light setup, camera at object's eye level (not above). A bevel-less box with flat color, floating with no shadow → reads as "a cube", not a designed object.
+- **D — wireframe → reads as "a precise drawing in space" when:** line weight is consistent (1px `lineBasicMaterial`), depth-graded opacity (far lines fade via fog), planes at distinct Z depths parallaxing. Intentionally NOT solid — but must be precise, not sketchy.
+- **E — topographic → reads as "terrain" when:** contour rings at real Z steps (0.1–0.2 each), height-ramped color (low ink → high bone), fog pooling at the base. Flat shaded rings at one Z → reads as "concentric circles", not land.
+- **F — fluid surface → reads as "a material surface" when:** a 64×64+ subdivided `planeGeometry` with per-vertex noise displacement + cursor ripple (vertex shader or per-frame `position.array` mutation), translucent/refractive material with a normal map, refraction or fresnel. A 4×4 plane with a flat color → reads as "a tilting card", not water/fabric.
+
+### 7.7 Solidity anti-patterns (any one = "not a thing")
+
+1. Flat `planeGeometry` for an object that should be solid (the cardinal sin — a card is not a thing).
+2. `meshBasicMaterial` on a solid (flat, weightless).
+3. One light only (no shadows → no volume).
+4. Razor edges, no bevel (Unity-cube CGI tell).
+5. No shadow / no AO (objects hover, never sit).
+6. Roughness 0.5 + metalness 0.5 everywhere (grey-plastic default).
+7. Identical repeated primitives, no massing variation (instanced-copy tell).
+8. No fog (Z-depth collapses, layers mush).
+9. Wrong proportions (a "building" with slab taller than long).
+10. Background tone == object tone (silhouette lost → mud).
+
+### 7.8 The static-screenshot naming test (mandatory before verify gate)
+
+Screenshot the resting state — no animation, no cursor, final pose. Hand it to a viewer with no context. Can they name the object?
+- "A building in cross-section" / "a row of crystals" / "a concrete sculpture" / "a terrain" = **PASS**.
+- "Some shapes" / "I think that's a... box?" / "a grid?" = **FAIL** — return to §7.1–7.5 until the object names itself. The whole point of 3D is that it is *a thing*; if it isn't a thing, it is decoration, and decoration belongs to CSS.
+
+---
+
+## 8. Workflow gate (how this manual plugs into the pipeline)
 
 - **Stage 2 (design):** before any 3D code, state (a) the category letter from §2, (b) the matrix row from §3, (c) the one-sentence subject-embodiment test from §0. If you can't state all three, you have not chosen a 3D signature — you have defaulted. Go back.
 - **Stage 3 (signature build):** the built effect must match the stated category's metaphor AND interaction model. A "category A" claim that ships a flat tile grid = FAIL, regardless of code quality.
