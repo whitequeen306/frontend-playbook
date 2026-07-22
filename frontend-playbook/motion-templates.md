@@ -1248,3 +1248,243 @@ The constants (RADIUS, MAX_LIFT, ROT_AMP, GRID_X, GRID_Y, lighting colors, fog) 
 ### Why per-frame lerp instead of gsap.elasticOut
 
 GSAP `elastic.out` is for one-shot tweens (curtain lift, count-up). For **continuous cursor tracking**, GSAP's tween machinery is the wrong tool — every pointermove would kill the old tween and start a new one. Per-frame `lerp(current, target, 0.18)` is the right tool: smooth, frame-rate independent, no tween overhead. The spring-back `lerp(current, home, 0.06)` produces elastic-feel motion at fraction the cost. **Match complexity to vision**: this is Motion Taste Principle #7 applied.
+
+---
+
+## 11. Architecture — exploded axonometric building (3D category A)
+
+For architecture firms, structural engineering, and real-estate masterplans. The building is a stack of real floor-plate slabs (boxes with thickness, **not planes**) with setbacks/cantilevers, threaded by dark steel cores, exploded into the axonometric that is the firm's drawing language. This is the **category A reference implementation** named in `three-d.md` §2 — it MUST follow the solidity craft in `three-d.md` §7 (shadows on, raking 3-light, self-shadowing, edge lines, per-slab color variation, fog) or it collapses to "floating cards, not a building" (the §7.6 + §7.8 test).
+
+**Stack:** `three` + `@react-three/fiber` + `gsap` + `@gsap/react`. Optional upgrade: `@react-three/drei` `<RoundedBox>` for bevel highlights (§7.1) — the version below is dep-free using `boxGeometry` + `EdgesGeometry`.
+
+```jsx
+// src/components/Hero.jsx — exploded axonometric (three-d.md §2 category A)
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { useRef, useMemo, useEffect } from 'react';
+import * as THREE from 'three';
+import { useGSAP } from '@gsap/react';
+import gsap from 'gsap';
+
+gsap.registerPlugin(useGSAP);
+
+// === TUNABLES — exploded axonometric building ===
+const SLAB_COUNT = 11;
+const SLAB_THICK = 0.16;        // 5–8% of span → real floor plate, not a card (three-d.md §7.1)
+const REST_GAP = 0.42;
+const EXPLODE_MAX = 2.6;
+const CORE_SIZE = 0.15;
+const CORE_H = (SLAB_COUNT - 1) * REST_GAP + SLAB_THICK;
+
+// deterministic massing — stable, designed-looking setbacks / cantilevers
+let _seed = 7;
+const rnd = () => { _seed = (_seed * 9301 + 49297) % 233280; return _seed / 233280; };
+const SLABS = Array.from({ length: SLAB_COUNT }, (_, k) => ({
+  k,
+  w: 2.4 + rnd() * 0.85,            // varied footprint — no identical primitives (§7.1)
+  d: 1.8 + rnd() * 0.85,
+  ox: (rnd() - 0.5) * 0.75,         // plan offset → setback / cantilever
+  oz: (rnd() - 0.5) * 0.75,
+  hueShift: (rnd() - 0.5) * 0.04,   // ±2% lightness per slab → real material, not instanced copies (§7.2)
+  isCrown: k === SLAB_COUNT - 1,    // top slab = corten cap (rust accent)
+}));
+const restY = (k) => (k - (SLAB_COUNT - 1) / 2) * REST_GAP;
+
+function Slab({ data }) {
+  // per-piece concrete color with slight variation (§7.2 — never flat identical color)
+  const color = useMemo(() => {
+    const c = new THREE.Color(data.isCrown ? '#b8542a' : '#9c958a');
+    c.offsetHSL(0, 0, data.hueShift);
+    return c;
+  }, [data.isCrown, data.hueShift]);
+  const geo = useMemo(() => new THREE.BoxGeometry(data.w, SLAB_THICK, data.d), [data.w, data.d]);
+  const edges = useMemo(() => new THREE.EdgesGeometry(geo), [geo]);  // §7.1 drafted contour
+  return (
+    <group>
+      <mesh geometry={geo} castShadow receiveShadow>
+        <meshStandardMaterial                                // §7.2 PBR, never meshBasicMaterial
+          color={color}
+          roughness={data.isCrown ? 0.6 : 0.9}               // concrete chalky / corten softer
+          metalness={data.isCrown ? 0.15 : 0.02}            // metalness by material, not 0.5 default
+        />
+      </mesh>
+      <lineSegments geometry={edges}>
+        <lineBasicMaterial color={data.isCrown ? '#d4a084' : '#2a2d33'} transparent opacity={0.55} />
+      </lineSegments>
+    </group>
+  );
+}
+
+function Building({ explodeRef, parallaxRef }) {
+  const group = useRef(null);
+  const slabRefs = useRef([]);
+  const { gl } = useThree();
+
+  // pointer events via gl.domElement — never querySelector + setInterval (three-d.md §5)
+  useEffect(() => {
+    const dom = gl.domElement;
+    const onEnter = () => { parallaxRef.current.active = true; };
+    const onLeave = () => { parallaxRef.current.active = false; };
+    dom.addEventListener('pointerenter', onEnter);
+    dom.addEventListener('pointerleave', onLeave);
+    return () => {
+      dom.removeEventListener('pointerenter', onEnter);
+      dom.removeEventListener('pointerleave', onLeave);
+    };
+  }, [gl, parallaxRef]);
+
+  useFrame((state) => {
+    const ex = explodeRef.current;
+    for (let k = 0; k < SLABS.length; k++) {
+      const m = slabRefs.current[k];
+      if (m) m.position.y = restY(k) * ex;                  // explode spreads the stack symmetrically
+    }
+    // gentle cursor orbit — physical model on a table (per-frame lerp, not gsap tweens)
+    const p = parallaxRef.current;
+    p.tx = p.active ? state.mouse.x : 0;
+    p.ty = p.active ? state.mouse.y : 0;
+    p.x = THREE.MathUtils.lerp(p.x, p.tx, 0.07);
+    p.y = THREE.MathUtils.lerp(p.y, p.ty, 0.07);
+    if (group.current) {
+      group.current.rotation.y = THREE.MathUtils.lerp(group.current.rotation.y, p.x * 0.4, 0.08);
+      group.current.rotation.x = THREE.MathUtils.lerp(group.current.rotation.x, -p.y * 0.18, 0.08);
+    }
+  });
+
+  const coreGeo = useMemo(() => new THREE.BoxGeometry(CORE_SIZE, CORE_H, CORE_SIZE), []);
+  const coreEdges = useMemo(() => new THREE.EdgesGeometry(coreGeo), [coreGeo]);
+  const cores = [[-1.05, -0.78], [1.12, 0.92]];             // 2 cores threading through — §7.6 category A requirement
+
+  return (
+    <group ref={group}>
+      {SLABS.map((s) => (
+        <group key={s.k} ref={(el) => { slabRefs.current[s.k] = el; }} position={[s.ox, restY(s.k), s.oz]}>
+          <Slab data={s} />
+        </group>
+      ))}
+      {cores.map(([cx, cz], i) => (
+        <mesh key={i} geometry={coreGeo} position={[cx, 0, cz]} castShadow receiveShadow>
+          <meshStandardMaterial color="#0e1014" roughness={0.35} metalness={0.7} />
+          <lineSegments geometry={coreEdges}>
+            <lineBasicMaterial color="#5a6b78" transparent opacity={0.4} />
+          </lineSegments>
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function Scene({ explodeRef, parallaxRef }) {
+  return (
+    <>
+      <ambientLight intensity={0.3} color="#ece8dd" />                               {/* §7.3 very low ambient */}
+      <directionalLight                                                              {/* KEY — raking low angle */}
+        position={[6, 3, 4]} intensity={1.0} color="#ece8dd" castShadow
+        shadow-mapSize-width={2048} shadow-mapSize-height={2048}
+        shadow-camera-left={-5} shadow-camera-right={5} shadow-camera-top={6} shadow-camera-bottom={-6}
+      />
+      <directionalLight position={[-5, -1, 3]} intensity={0.35} color="#b8542a" />    {/* FILL — warm rust */}
+      <pointLight position={[0, 2, -6]} intensity={0.5} color="#5a6b78" distance={18} />{/* RIM — cool */}
+      <Building explodeRef={explodeRef} parallaxRef={parallaxRef} />
+      <fog attach="fog" args={['#08090b', 7, 16]} />                                 {/* §7.5 mandatory fog */}
+    </>
+  );
+}
+
+export default function Hero() {
+  const containerRef = useRef(null);
+  const explodeRef = useRef(1);
+  const parallaxRef = useRef({ x: 0, y: 0, tx: 0, ty: 0, active: false });
+
+  useGSAP(() => {
+    const mm = gsap.matchMedia();
+    mm.add('(prefers-reduced-motion: no-preference)', () => {
+      // ONE-SHOT load entrance — NO scroll pin (three-d.md §5 + Motion Taste "No scroll-jacking pin traps")
+      const proxy = { v: 1 };
+      gsap.to(proxy, {
+        v: EXPLODE_MAX, duration: 1.4, ease: 'power2.inOut', delay: 0.3,
+        onUpdate: () => { explodeRef.current = proxy.v; },
+      });
+      gsap.from('.hero-eyebrow, .hero-title, .hero-sub', {
+        opacity: 0, y: 20, stagger: 0.1, duration: 0.8, ease: 'power3.out', delay: 0.5,
+      });
+    });
+    mm.add('(prefers-reduced-motion: reduce)', () => {
+      explodeRef.current = EXPLODE_MAX;                                              // final static state, no rAF
+      gsap.set('.hero-eyebrow, .hero-title, .hero-sub', { opacity: 1, y: 0 });
+    });
+  }, { scope: containerRef });
+
+  return (
+    <section ref={containerRef} id="top" className="hero">
+      <div className="hero-canvas">
+        {/* shadows ON (§7.4) — self-shadowing grounds each gap as real space, not 2D offset */}
+        <Canvas shadows camera={{ position: [0, 0.4, 9.2], fov: 42 }} dpr={[1, 2]} gl={{ antialias: true, alpha: true }}>
+          <Scene explodeRef={explodeRef} parallaxRef={parallaxRef} />
+        </Canvas>
+      </div>
+      <div className="hero-overlay">
+        <span className="hero-eyebrow font-mono tracking-caps">EST. 2009 · ROTTERDAM</span>
+        <h1 className="hero-title font-display">MERIDIAN</h1>
+        <p className="hero-sub font-display-md">Buildings drawn on the <em>horizon</em>.</p>
+      </div>
+    </section>
+  );
+}
+```
+
+```css
+/* src/styles/sections.css — 3D hero (category A) */
+.hero { position: relative; min-height: 100vh; background: var(--color-ink); overflow: hidden; }
+.hero-canvas { position: absolute; inset: 0; z-index: 2; }
+.hero-canvas canvas { width: 100% !important; height: 100% !important; display: block; }
+.hero-overlay {
+  position: absolute; top: clamp(5rem, 12vh, 8rem); left: clamp(2rem, 5vw, 4rem); z-index: 4;
+  pointer-events: none;
+}
+.hero-title {
+  font-size: clamp(3.5rem, 8vw, 6rem); color: var(--color-bone); margin: 0;
+  line-height: 0.88; letter-spacing: -0.04em;
+  text-shadow: 0 0 50px rgba(10, 10, 12, 0.85);
+}
+.hero-sub em { color: var(--color-rust); font-style: italic; }
+@media (prefers-reduced-motion: reduce) {
+  .hero-overlay, .hero-overlay > * { opacity: 1 !important; transform: none !important; }
+}
+```
+
+### How to vary the metaphor (not just architecture)
+
+The exploded-axonometric pattern shifts by sub-domain — only the massing + material change:
+
+| Domain | Building made of | Exploded metaphor |
+|---|---|---|
+| Architecture firm | Concrete floor slabs + steel cores | "the section drawing come to life" |
+| Structural engineering | Steel frame + beam grid | "the load path revealed" |
+| Real-estate masterplan | Tower massing blocks by use-class | "programme stacking study" |
+| Museum / cultural | Gallery floor plates + one accent volume | "the visitor path sectioned" |
+| Urban design | City blocks at district scale | "the city extruded" |
+
+Constants (`SLAB_COUNT`, `SLAB_THICK`/span, core count, concrete roughness, accent slab position) shift per sub-domain — a tower wants `SLAB_COUNT` 20+, a museum 5–6 with one big accent, urban design fans out radially instead of vertically. Adapt, don't copy.
+
+### Why a one-shot entrance, not scroll-scrub
+
+Earlier drafts pinned the section and `scrub`-drove the explosion (`pin: true` + `scrub`). That traps the scroll — the user swipes down and the page refuses to advance, which reads as broken/cheap UX and is the #1 complaint against award-style motion. The version above uses a **one-shot `gsap.to` load entrance** (~1.4s, plays once, then the building sits as a sculpture) so the page scrolls normally immediately. This is **Motion Taste "No scroll-jacking pin traps"** applied — see `three-d.md` §5 and the principle earlier in this file.
+
+### Solidity checklist (before claiming done — `three-d.md` §7.8 naming test)
+
+A static screenshot of the resting (fully exploded, no cursor) state must read as **a building in section** to a no-context viewer. Confirm each is true:
+
+- [ ] Slabs are `boxGeometry` with thickness 5–8% of span (not `planeGeometry` — a card is not a thing)
+- [ ] Cores thread through (dark steel, metalness 0.7) — without them it's "floating cards"
+- [ ] `<Canvas shadows>` + `castShadow`/`receiveShadow` on slabs — self-shadow grounds each gap as real space
+- [ ] Raking key light (low angle, long shadows) — front light flattens
+- [ ] `EdgesGeometry` line contour on every slab — drafted floor-plate read
+- [ ] Per-slab `hueShift` ±2% — real material, not instanced copies
+- [ ] Fog near 7 / far 16 — Z-depth so top/bottom slabs separate
+- [ ] Camera `fov: 42` — architectural, not fish-eye
+- [ ] One crown slab in rust accent (corten cap)
+- [ ] Under `prefers-reduced-motion: reduce` → `explodeRef = EXPLODE_MAX` (final state, no animation)
+
+If a viewer says "some shapes" / "a box?" → **FAIL**, return to `three-d.md` §7.1–7.5 until the object names itself.
+
+> **Optional bevel upgrade (§7.1):** swap each slab's `boxGeometry` for `@react-three/drei`'s `<RoundedBox args={[w, SLAB_THICK, d]} radius={0.02} smoothness={4}>`. The bevel catches a 1–2px top-edge highlight that reads as "machined" vs "Unity cube". Dep-free version above uses sharp boxes + `EdgesGeometry` lines, which is acceptable; RoundedBox is the polish step.
